@@ -1,0 +1,12 @@
+numpy
+pillow
+matplotlib
+tqdm
+pyyaml
+einops
+scipy
+tensorboard
+pytorch-fid
+pandas
+seaborn
+wandb

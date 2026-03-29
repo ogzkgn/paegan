@@ -1,0 +1,35 @@
+experiment_name: celeba32_debug
+seed: 42
+
+data:
+  dataset_name: celeba
+  root: ./celeba
+  image_size: 32
+  channels: 3
+  num_workers: 0
+  pin_memory: true
+
+train:
+  batch_size: 16
+  epochs: 2
+  lr_g: 0.0002
+  lr_d: 0.0002
+  betas: [0.0, 0.99]
+  log_every: 1
+  sample_every: 5
+  checkpoint_every: 1
+  n_critic: 1
+  use_amp: true
+
+model:
+  latent_dim: 128
+  base_channels: 128
+  image_size: 32
+  stage_resolutions: [8, 16, 32]
+  blocks_per_stage: 1
+  use_positional_embeddings: true
+  attention_schedule: ["window_4", "window_4", "window_4"]
+
+eval:
+  num_samples_for_fid: 1000
+  save_dir: ./outputs

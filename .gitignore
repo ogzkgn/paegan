@@ -1,0 +1,9 @@
+.venv/
+.venv-gpu-cu121/
+__pycache__/
+*.pyc
+
+celeba/
+outputs/
+
+.DS_Store

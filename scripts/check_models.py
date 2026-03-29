@@ -21,7 +21,7 @@ def load_config(config_path: Path) -> dict:
 
 
 def main() -> None:
-    config = load_config(Path("configs/base_celeba32.yaml"))
+    config = load_config(Path("configs/debug_celeba32.yaml"))
     model_cfg = config["model"]
     data_cfg = config["data"]
     batch_size = 4

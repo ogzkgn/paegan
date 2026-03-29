@@ -35,7 +35,7 @@ class PAMGenerator(nn.Module):
         self.fixed_attention_type = fixed_attention_type if attention_enabled else "none"
         self.attention_resolution = attention_resolution
         self.current_epoch = 1
-        self.current_attention_type = self.fixed_attention_type
+        self.current_attention_type = "none"
         self.progressive_attention_schedule = progressive_attention_schedule or [
             {"epoch_start": 1, "attention_type": "window_4"},
             {"epoch_start": 11, "attention_type": "window_8"},
@@ -69,6 +69,8 @@ class PAMGenerator(nn.Module):
             nn.Conv2d(c, out_channels, kernel_size=3, padding=1),
             nn.Tanh(),
         )
+
+        self.set_epoch(1)
 
     def set_epoch(self, epoch: int) -> None:
         self.current_epoch = epoch

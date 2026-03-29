@@ -34,12 +34,22 @@ class ProgressiveAttentionModule(nn.Module):
             out = self._apply_attention(h.flatten(2).transpose(1, 2))
             out = out.transpose(1, 2).reshape(bsz, channels, height, width)
         elif attention_type.startswith("window_"):
-            window = int(attention_type.split("_", maxsplit=1)[1])
+            window = self._parse_window_size(attention_type)
             out = self._apply_window_attention(h, window)
         else:
             raise ValueError(f"Unsupported attention type: {attention_type}")
 
         return x + out
+
+    @staticmethod
+    def _parse_window_size(attention_type: str) -> int:
+        try:
+            window = int(attention_type.split("_", maxsplit=1)[1])
+        except (IndexError, ValueError) as exc:
+            raise ValueError(f"Invalid window attention type: {attention_type}") from exc
+        if window <= 0:
+            raise ValueError(f"Window size must be positive, got {window}")
+        return window
 
     def _apply_window_attention(self, x: torch.Tensor, window: int) -> torch.Tensor:
         bsz, channels, height, width = x.shape

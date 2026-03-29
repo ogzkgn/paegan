@@ -1,61 +1,51 @@
-"""Attention modules for the generator."""
+"""Single attention module for PAM-GAN."""
 
 from __future__ import annotations
-
-import math
 
 import torch
 from torch import nn
 
 
-class StageAttention(nn.Module):
-    """Self-attention that can operate globally or within local windows."""
+class ProgressiveAttentionModule(nn.Module):
+    """Applies self-attention over a feature map using local or global context."""
 
-    def __init__(self, dim: int, num_heads: int, attention_type: str) -> None:
+    def __init__(self, channels: int, num_heads: int = 4) -> None:
         super().__init__()
-        if dim % num_heads != 0:
-            raise ValueError(f"dim={dim} must be divisible by num_heads={num_heads}")
+        if channels % num_heads != 0:
+            raise ValueError(f"channels={channels} must be divisible by num_heads={num_heads}")
 
-        self.dim = dim
+        self.channels = channels
         self.num_heads = num_heads
-        self.head_dim = dim // num_heads
+        self.head_dim = channels // num_heads
         self.scale = self.head_dim ** -0.5
-        self.attention_type = attention_type
-        self.window_size = self._parse_window_size(attention_type)
 
-        self.qkv = nn.Linear(dim, dim * 3)
-        self.proj = nn.Linear(dim, dim)
+        self.norm = nn.BatchNorm2d(channels)
+        self.qkv = nn.Conv2d(channels, channels * 3, kernel_size=1)
+        self.proj = nn.Conv2d(channels, channels, kernel_size=1)
 
-    @staticmethod
-    def _parse_window_size(attention_type: str) -> int | None:
-        if attention_type == "global":
-            return None
-        if attention_type.startswith("window_"):
-            return int(attention_type.split("_", maxsplit=1)[1])
-        raise ValueError(f"Unsupported attention_type: {attention_type}")
+    def forward(self, x: torch.Tensor, attention_type: str) -> torch.Tensor:
+        if attention_type == "none":
+            return x
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
         bsz, channels, height, width = x.shape
-        tokens = x.flatten(2).transpose(1, 2)
+        h = self.norm(x)
 
-        if self.window_size is None:
-            attended = self._apply_attention(tokens)
+        if attention_type == "global":
+            out = self._apply_attention(h.flatten(2).transpose(1, 2))
+            out = out.transpose(1, 2).reshape(bsz, channels, height, width)
+        elif attention_type.startswith("window_"):
+            window = int(attention_type.split("_", maxsplit=1)[1])
+            out = self._apply_window_attention(h, window)
         else:
-            if height != width:
-                raise ValueError("Window attention expects square spatial inputs.")
-            if height % self.window_size != 0 or width % self.window_size != 0:
-                raise ValueError(
-                    f"window_size={self.window_size} must divide spatial size {height}x{width}"
-                )
-            attended = self._apply_window_attention(tokens, height, width)
+            raise ValueError(f"Unsupported attention type: {attention_type}")
 
-        return attended.transpose(1, 2).reshape(bsz, channels, height, width)
+        return x + out
 
-    def _apply_window_attention(self, tokens: torch.Tensor, height: int, width: int) -> torch.Tensor:
-        bsz, _, channels = tokens.shape
-        window = self.window_size
+    def _apply_window_attention(self, x: torch.Tensor, window: int) -> torch.Tensor:
+        bsz, channels, height, width = x.shape
+        if height % window != 0 or width % window != 0:
+            raise ValueError(f"window={window} must divide feature map {height}x{width}")
 
-        x = tokens.transpose(1, 2).reshape(bsz, channels, height, width)
         x = x.reshape(
             bsz,
             channels,
@@ -68,11 +58,13 @@ class StageAttention(nn.Module):
         x = self._apply_attention(x)
         x = x.reshape(bsz, height // window, width // window, window, window, channels)
         x = x.permute(0, 5, 1, 3, 2, 4).reshape(bsz, channels, height, width)
-        return x.flatten(2).transpose(1, 2)
+        return x
 
     def _apply_attention(self, tokens: torch.Tensor) -> torch.Tensor:
-        bsz, num_tokens, _ = tokens.shape
-        qkv = self.qkv(tokens)
+        bsz, num_tokens, channels = tokens.shape
+        spatial = int(num_tokens ** 0.5)
+        qkv = self.qkv(tokens.transpose(1, 2).reshape(bsz, channels, spatial, spatial))
+        qkv = qkv.flatten(2).transpose(1, 2)
         qkv = qkv.reshape(bsz, num_tokens, 3, self.num_heads, self.head_dim)
         qkv = qkv.permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(dim=0)
@@ -80,33 +72,6 @@ class StageAttention(nn.Module):
         attn = torch.matmul(q, k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
         out = torch.matmul(attn, v)
-        out = out.transpose(1, 2).reshape(bsz, num_tokens, self.dim)
-        return self.proj(out)
-
-
-class TransformerStageBlock(nn.Module):
-    """A minimal pre-norm transformer block over image tokens."""
-
-    def __init__(self, dim: int, num_heads: int, attention_type: str, mlp_ratio: float = 4.0) -> None:
-        super().__init__()
-        hidden_dim = int(dim * mlp_ratio)
-
-        self.norm1 = nn.LayerNorm(dim)
-        self.attn = StageAttention(dim=dim, num_heads=num_heads, attention_type=attention_type)
-        self.norm2 = nn.LayerNorm(dim)
-        self.mlp = nn.Sequential(
-            nn.Linear(dim, hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, dim),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        bsz, channels, height, width = x.shape
-
-        tokens = x.flatten(2).transpose(1, 2)
-        normed = self.norm1(tokens).transpose(1, 2).reshape(bsz, channels, height, width)
-        x = x + self.attn(normed)
-
-        tokens = x.flatten(2).transpose(1, 2)
-        x = x + self.mlp(self.norm2(tokens)).transpose(1, 2).reshape(bsz, channels, height, width)
-        return x
+        out = out.transpose(1, 2).reshape(bsz, num_tokens, channels)
+        out = self.proj(out.transpose(1, 2).reshape(bsz, channels, spatial, spatial))
+        return out.flatten(2).transpose(1, 2)

@@ -1,6 +1,6 @@
-"""Model components for PAE-GAN."""
+"""Model components for PAM-GAN."""
 
-from models.discriminator import CNNDiscriminator
-from models.generator import ProgressiveGenerator
+from models.discriminator import CNNDiscriminator, DCGANDiscriminator
+from models.generator import PAMGenerator, ProgressiveGenerator
 
-__all__ = ["CNNDiscriminator", "ProgressiveGenerator"]
+__all__ = ["CNNDiscriminator", "DCGANDiscriminator", "PAMGenerator", "ProgressiveGenerator"]

@@ -1,4 +1,4 @@
-experiment_name: celeba32_debug
+experiment_name: celeba32_pam_debug
 seed: 42
 
 data:
@@ -23,12 +23,18 @@ train:
 
 model:
   latent_dim: 128
-  base_channels: 128
+  base_channels: 64
   image_size: 32
-  stage_resolutions: [8, 16, 32]
-  blocks_per_stage: 1
-  use_positional_embeddings: true
-  attention_schedule: ["window_4", "window_4", "window_4"]
+  attention_enabled: true
+  attention_mode: progressive
+  fixed_attention_type: window_4
+  attention_resolution: 16
+  attention_num_heads: 4
+  progressive_attention_schedule:
+    - epoch_start: 1
+      attention_type: window_4
+    - epoch_start: 2
+      attention_type: window_8
 
 eval:
   num_samples_for_fid: 1000

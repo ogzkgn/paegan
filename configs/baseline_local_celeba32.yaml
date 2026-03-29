@@ -1,4 +1,4 @@
-experiment_name: celeba32_baseline_local
+experiment_name: celeba32_dcgan_baseline
 seed: 42
 
 data:
@@ -23,12 +23,13 @@ train:
 
 model:
   latent_dim: 128
-  base_channels: 256
+  base_channels: 64
   image_size: 32
-  stage_resolutions: [8, 16, 32]
-  blocks_per_stage: 1
-  use_positional_embeddings: true
-  attention_schedule: ["window_4", "window_4", "window_4"]
+  attention_enabled: false
+  attention_mode: fixed
+  fixed_attention_type: none
+  attention_resolution: 16
+  attention_num_heads: 4
 
 eval:
   num_samples_for_fid: 5000

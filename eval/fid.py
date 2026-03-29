@@ -26,11 +26,13 @@ def _build_generator_from_config(config: dict) -> ProgressiveGenerator:
         latent_dim=int(model_cfg["latent_dim"]),
         base_channels=int(model_cfg["base_channels"]),
         image_size=int(model_cfg["image_size"]),
-        stage_resolutions=list(model_cfg["stage_resolutions"]),
-        attention_schedule=list(model_cfg["attention_schedule"]),
-        blocks_per_stage=int(model_cfg["blocks_per_stage"]),
         out_channels=int(data_cfg["channels"]),
-        use_positional_embeddings=bool(model_cfg.get("use_positional_embeddings", True)),
+        attention_enabled=bool(model_cfg.get("attention_enabled", False)),
+        attention_mode=str(model_cfg.get("attention_mode", "fixed")),
+        fixed_attention_type=str(model_cfg.get("fixed_attention_type", "global")),
+        attention_resolution=int(model_cfg.get("attention_resolution", 16)),
+        attention_num_heads=int(model_cfg.get("attention_num_heads", 4)),
+        progressive_attention_schedule=list(model_cfg.get("progressive_attention_schedule", [])),
     )
     return generator
 

@@ -1,86 +1,105 @@
-"""Stage-based generator for PAE-GAN."""
+"""DCGAN-style generator with a single progressive attention module."""
 
 from __future__ import annotations
 
 import torch
 from torch import nn
-import torch.nn.functional as F
 
-from models.attention import TransformerStageBlock
+from models.attention import ProgressiveAttentionModule
 
 
-class ProgressiveGenerator(nn.Module):
-    """Projects a latent vector into an 8x8 token map and upsamples by stage."""
+class PAMGenerator(nn.Module):
+    """DCGAN-style generator with one attention module at an intermediate resolution."""
 
     def __init__(
         self,
         latent_dim: int = 128,
-        base_channels: int = 256,
+        base_channels: int = 64,
         image_size: int = 32,
-        stage_resolutions: list[int] | None = None,
-        attention_schedule: list[str] | None = None,
-        blocks_per_stage: int = 1,
         out_channels: int = 3,
-        num_heads: int = 8,
-        use_positional_embeddings: bool = True,
+        attention_enabled: bool = True,
+        attention_mode: str = "fixed",
+        fixed_attention_type: str = "global",
+        attention_resolution: int = 16,
+        attention_num_heads: int = 4,
+        progressive_attention_schedule: list[dict] | None = None,
+        **_: dict,
     ) -> None:
         super().__init__()
-        if stage_resolutions is None:
-            stage_resolutions = [8, 16, 32]
-        if attention_schedule is None:
-            attention_schedule = ["window_4", "window_4", "window_4"]
-        if len(stage_resolutions) != len(attention_schedule):
-            raise ValueError("stage_resolutions and attention_schedule must have the same length")
-        if stage_resolutions[-1] != image_size:
-            raise ValueError("Final stage resolution must match image_size")
+        if image_size != 32:
+            raise ValueError("This PAM-GAN implementation currently targets 32x32 outputs.")
 
-        self.image_size = image_size
-        self.base_channels = base_channels
-        self.stage_resolutions = stage_resolutions
-        self.use_positional_embeddings = use_positional_embeddings
+        self.latent_dim = latent_dim
+        self.attention_enabled = attention_enabled
+        self.attention_mode = attention_mode
+        self.fixed_attention_type = fixed_attention_type if attention_enabled else "none"
+        self.attention_resolution = attention_resolution
+        self.current_epoch = 1
+        self.current_attention_type = self.fixed_attention_type
+        self.progressive_attention_schedule = progressive_attention_schedule or [
+            {"epoch_start": 1, "attention_type": "window_4"},
+            {"epoch_start": 11, "attention_type": "window_8"},
+            {"epoch_start": 21, "attention_type": "global"},
+        ]
 
-        self.input_proj = nn.Linear(latent_dim, base_channels * stage_resolutions[0] * stage_resolutions[0])
+        c = base_channels
+        self.project = nn.Sequential(
+            nn.Linear(latent_dim, c * 8 * 4 * 4),
+            nn.BatchNorm1d(c * 8 * 4 * 4),
+            nn.ReLU(inplace=True),
+        )
 
-        stages = []
-        to_rgb_layers = []
-        positional_embeddings = []
-        for stage_idx, attention_type in enumerate(attention_schedule):
-            resolution = stage_resolutions[stage_idx]
-            blocks = [
-                TransformerStageBlock(
-                    dim=base_channels,
-                    num_heads=num_heads,
-                    attention_type=attention_type,
-                )
-                for _ in range(blocks_per_stage)
-            ]
-            stages.append(nn.Sequential(*blocks))
-            positional_embeddings.append(
-                nn.Parameter(torch.zeros(1, base_channels, resolution, resolution))
+        self.up1 = nn.Sequential(
+            nn.ConvTranspose2d(c * 8, c * 4, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(c * 4),
+            nn.ReLU(inplace=True),
+        )
+        self.up2 = nn.Sequential(
+            nn.ConvTranspose2d(c * 4, c * 2, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(c * 2),
+            nn.ReLU(inplace=True),
+        )
+        self.attention = ProgressiveAttentionModule(c * 2, num_heads=attention_num_heads)
+        self.up3 = nn.Sequential(
+            nn.ConvTranspose2d(c * 2, c, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(c),
+            nn.ReLU(inplace=True),
+        )
+        self.to_rgb = nn.Sequential(
+            nn.Conv2d(c, out_channels, kernel_size=3, padding=1),
+            nn.Tanh(),
+        )
+
+    def set_epoch(self, epoch: int) -> None:
+        self.current_epoch = epoch
+        if not self.attention_enabled:
+            self.current_attention_type = "none"
+            return
+
+        if self.attention_mode == "fixed":
+            self.current_attention_type = self.fixed_attention_type
+            return
+        if self.attention_mode != "progressive":
+            raise ValueError(f"Unsupported attention_mode: {self.attention_mode}")
+
+        current_type = self.progressive_attention_schedule[0]["attention_type"]
+        for item in self.progressive_attention_schedule:
+            if epoch >= int(item["epoch_start"]):
+                current_type = item["attention_type"]
+        self.current_attention_type = current_type
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        bsz = z.size(0)
+        x = self.project(z).view(bsz, -1, 4, 4)
+        x = self.up1(x)
+        x = self.up2(x)
+        if x.shape[-1] != self.attention_resolution:
+            raise ValueError(
+                f"Attention module expected resolution {self.attention_resolution}, got {x.shape[-1]}"
             )
-            to_rgb_layers.append(
-                nn.Sequential(
-                    nn.GroupNorm(num_groups=8, num_channels=base_channels),
-                    nn.SiLU(),
-                    nn.Conv2d(base_channels, out_channels, kernel_size=3, padding=1),
-                )
-            )
+        x = self.attention(x, self.current_attention_type)
+        x = self.up3(x)
+        return self.to_rgb(x)
 
-        self.stages = nn.ModuleList(stages)
-        self.positional_embeddings = nn.ParameterList(positional_embeddings)
-        self.to_rgb_layers = nn.ModuleList(to_rgb_layers)
 
-    def forward(self, z):
-        initial_size = self.stage_resolutions[0]
-        x = self.input_proj(z)
-        x = x.view(z.size(0), self.base_channels, initial_size, initial_size)
-
-        for stage_idx, resolution in enumerate(self.stage_resolutions):
-            if stage_idx > 0:
-                x = F.interpolate(x, size=(resolution, resolution), mode="nearest")
-            if self.use_positional_embeddings:
-                x = x + self.positional_embeddings[stage_idx]
-            x = self.stages[stage_idx](x)
-
-        rgb = self.to_rgb_layers[-1](x)
-        return rgb.tanh()
+ProgressiveGenerator = PAMGenerator

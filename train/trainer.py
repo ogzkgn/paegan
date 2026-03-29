@@ -36,6 +36,7 @@ def build_models(config: dict, device: torch.device) -> tuple[ProgressiveGenerat
         fixed_attention_type=str(model_cfg.get("fixed_attention_type", "global")),
         attention_resolution=int(model_cfg.get("attention_resolution", 16)),
         attention_num_heads=int(model_cfg.get("attention_num_heads", 4)),
+        attention_alpha=float(model_cfg.get("attention_alpha", 1.0)),
         progressive_attention_schedule=list(model_cfg.get("progressive_attention_schedule", [])),
     ).to(device)
 

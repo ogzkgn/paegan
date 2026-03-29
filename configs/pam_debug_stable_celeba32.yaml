@@ -1,4 +1,4 @@
-experiment_name: celeba32_progressive_attention
+experiment_name: celeba32_pam_debug_stable
 seed: 42
 
 data:
@@ -6,17 +6,17 @@ data:
   root: ./celeba
   image_size: 32
   channels: 3
-  num_workers: 4
+  num_workers: 0
   pin_memory: true
 
 train:
-  batch_size: 64
-  epochs: 50
+  batch_size: 16
+  epochs: 2
   lr_g: 0.0001
   lr_d: 0.0001
   betas: [0.0, 0.99]
-  log_every: 100
-  sample_every: 500
+  log_every: 1
+  sample_every: 10
   checkpoint_every: 1
   n_critic: 1
   use_amp: true
@@ -26,21 +26,12 @@ model:
   base_channels: 64
   image_size: 32
   attention_enabled: true
-  attention_mode: progressive
+  attention_mode: fixed
   fixed_attention_type: window_4
   attention_resolution: 8
   attention_num_heads: 4
   attention_alpha: 0.05
-  progressive_attention_schedule:
-    - epoch_start: 1
-      attention_type: none
-    - epoch_start: 4
-      attention_type: window_4
-    - epoch_start: 11
-      attention_type: window_8
-    - epoch_start: 21
-      attention_type: global
 
 eval:
-  num_samples_for_fid: 5000
+  num_samples_for_fid: 1000
   save_dir: ./outputs

@@ -9,15 +9,18 @@ from torch import nn
 class ProgressiveAttentionModule(nn.Module):
     """Applies self-attention over a feature map using local or global context."""
 
-    def __init__(self, channels: int, num_heads: int = 4) -> None:
+    def __init__(self, channels: int, num_heads: int = 4, attention_alpha: float = 1.0) -> None:
         super().__init__()
         if channels % num_heads != 0:
             raise ValueError(f"channels={channels} must be divisible by num_heads={num_heads}")
+        if attention_alpha < 0.0:
+            raise ValueError(f"attention_alpha must be non-negative, got {attention_alpha}")
 
         self.channels = channels
         self.num_heads = num_heads
         self.head_dim = channels // num_heads
         self.scale = self.head_dim ** -0.5
+        self.attention_alpha = float(attention_alpha)
 
         self.norm = nn.BatchNorm2d(channels)
         self.qkv = nn.Conv2d(channels, channels * 3, kernel_size=1)
@@ -39,7 +42,7 @@ class ProgressiveAttentionModule(nn.Module):
         else:
             raise ValueError(f"Unsupported attention type: {attention_type}")
 
-        return x + out
+        return x + (self.attention_alpha * out)
 
     @staticmethod
     def _parse_window_size(attention_type: str) -> int:

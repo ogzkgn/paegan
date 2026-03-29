@@ -22,6 +22,7 @@ class PAMGenerator(nn.Module):
         fixed_attention_type: str = "global",
         attention_resolution: int = 16,
         attention_num_heads: int = 4,
+        attention_alpha: float = 1.0,
         progressive_attention_schedule: list[dict] | None = None,
         **_: dict,
     ) -> None:
@@ -43,6 +44,15 @@ class PAMGenerator(nn.Module):
         ]
 
         c = base_channels
+        if self.attention_resolution == 8:
+            attention_channels = c * 4
+        elif self.attention_resolution == 16:
+            attention_channels = c * 2
+        else:
+            raise ValueError(
+                f"Unsupported attention_resolution={self.attention_resolution}. Use 8 or 16."
+            )
+
         self.project = nn.Sequential(
             nn.Linear(latent_dim, c * 8 * 4 * 4),
             nn.BatchNorm1d(c * 8 * 4 * 4),
@@ -59,7 +69,11 @@ class PAMGenerator(nn.Module):
             nn.BatchNorm2d(c * 2),
             nn.ReLU(inplace=True),
         )
-        self.attention = ProgressiveAttentionModule(c * 2, num_heads=attention_num_heads)
+        self.attention = ProgressiveAttentionModule(
+            attention_channels,
+            num_heads=attention_num_heads,
+            attention_alpha=attention_alpha,
+        )
         self.up3 = nn.Sequential(
             nn.ConvTranspose2d(c * 2, c, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(c),
@@ -94,12 +108,21 @@ class PAMGenerator(nn.Module):
         bsz = z.size(0)
         x = self.project(z).view(bsz, -1, 4, 4)
         x = self.up1(x)
+        attention_applied = False
+        if x.shape[-1] == self.attention_resolution:
+            x = self.attention(x, self.current_attention_type)
+            attention_applied = True
+
         x = self.up2(x)
-        if x.shape[-1] != self.attention_resolution:
+        if x.shape[-1] == self.attention_resolution:
+            x = self.attention(x, self.current_attention_type)
+            attention_applied = True
+
+        if not attention_applied:
             raise ValueError(
-                f"Attention module expected resolution {self.attention_resolution}, got {x.shape[-1]}"
+                "Attention module expected resolution "
+                f"{self.attention_resolution}, got stages 8 and 16 instead"
             )
-        x = self.attention(x, self.current_attention_type)
         x = self.up3(x)
         return self.to_rgb(x)
 

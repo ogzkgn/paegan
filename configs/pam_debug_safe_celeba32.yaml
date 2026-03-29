@@ -1,4 +1,4 @@
-experiment_name: celeba32_pam_debug
+experiment_name: celeba32_pam_debug_safe
 seed: 42
 
 data:
@@ -12,11 +12,11 @@ data:
 train:
   batch_size: 16
   epochs: 2
-  lr_g: 0.0002
+  lr_g: 0.0001
   lr_d: 0.0002
   betas: [0.0, 0.99]
   log_every: 1
-  sample_every: 5
+  sample_every: 10
   checkpoint_every: 1
   n_critic: 1
   use_amp: true
@@ -26,16 +26,11 @@ model:
   base_channels: 64
   image_size: 32
   attention_enabled: true
-  attention_mode: progressive
+  attention_mode: fixed
   fixed_attention_type: window_4
   attention_resolution: 8
   attention_num_heads: 4
   attention_alpha: 0.1
-  progressive_attention_schedule:
-    - epoch_start: 1
-      attention_type: window_4
-    - epoch_start: 2
-      attention_type: window_8
 
 eval:
   num_samples_for_fid: 1000
